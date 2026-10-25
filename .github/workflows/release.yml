@@ -1,0 +1,76 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+          - { goos: darwin, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
+          - { goos: windows, goarch: amd64 }
+          - { goos: windows, goarch: arm64 }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: go test ./...
+      - name: Build and package
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          TAG: ${{ github.ref_name }}
+          CGO_ENABLED: "0"
+        run: |
+          set -euo pipefail
+          name="m3filter_${TAG}_${GOOS}_${GOARCH}"
+          bin="m3filter"
+          [[ "$GOOS" == "windows" ]] && bin="m3filter.exe"
+          mkdir -p "dist" "stage/$name"
+          go build -trimpath -ldflags "-s -w -X main.version=$TAG" -o "stage/$name/$bin" .
+          for f in README.md LICENSE; do
+            [[ -f "$f" ]] && cp "$f" "stage/$name/"
+          done
+          if [[ "$GOOS" == "windows" ]]; then
+            (cd stage && zip -r "../dist/$name.zip" "$name")
+          else
+            tar -C stage -czf "dist/$name.tar.gz" "$name"
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: m3filter_${{ matrix.goos }}_${{ matrix.goarch }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum -- * > checksums.txt
+          cd ..
+          gh release create "$TAG" dist/* --repo "$REPO" --title "$TAG" --generate-notes
