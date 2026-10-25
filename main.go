@@ -5,18 +5,22 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
 
 var version = "dev"
 
+const httpTimeout = 60 * time.Second
+
 const usageText = `m3filter - filter M3U/M3U8 playlists by pattern
 
 Usage:
-  m3filter [flags] [input.m3u]      (reads stdin when no file is given)
+  m3filter [flags] [input.m3u | http(s)://url]   (reads stdin when no input is given)
 
 Patterns are written as [field:]pattern. Fields: name, group, id, logo, url, any.
 Without a prefix the --field default (name) is used. Entries are kept when they
@@ -274,6 +278,23 @@ func writeGroups(w io.Writer, entries []Entry) {
 	}
 }
 
+// openInput opens a local file, or fetches the playlist when src is an http(s) URL.
+func openInput(src string) (io.ReadCloser, error) {
+	if !strings.HasPrefix(src, "http://") && !strings.HasPrefix(src, "https://") {
+		return os.Open(src)
+	}
+	client := &http.Client{Timeout: httpTimeout}
+	resp, err := client.Get(src)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		return nil, fmt.Errorf("fetching %s: %s", src, resp.Status)
+	}
+	return resp.Body, nil
+}
+
 func fail(format string, a ...any) {
 	fmt.Fprintf(os.Stderr, "ERROR: "+format+"\n", a...)
 	os.Exit(1)
@@ -319,7 +340,7 @@ func main() {
 		fail("expected at most one input file")
 	}
 	if flag.NArg() == 1 {
-		f, err := os.Open(flag.Arg(0))
+		f, err := openInput(flag.Arg(0))
 		if err != nil {
 			fail("%v", err)
 		}

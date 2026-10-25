@@ -3,7 +3,7 @@
 Single-binary CLI to filter M3U/M3U8 playlists by substring, glob or regex.
 
 ```
-m3filter [flags] [input.m3u]        # stdin when no file is given
+m3filter [flags] [input.m3u | http(s)://url]   # stdin when no input is given
 ```
 
 Patterns are `[field:]pattern`. Fields: `name` (default), `group`, `id`, `logo`, `url`, `any`.

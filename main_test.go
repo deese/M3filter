@@ -1,6 +1,9 @@
 package main
 
 import (
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -67,6 +70,31 @@ func TestFilters(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
 		}
+	}
+}
+
+func TestOpenInputHTTP(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/list.m3u" {
+			http.NotFound(w, r)
+			return
+		}
+		io.WriteString(w, sample)
+	}))
+	defer srv.Close()
+
+	rc, err := openInput(srv.URL + "/list.m3u")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rc.Close()
+	_, entries, _ := parsePlaylist(rc)
+	if len(entries) != 3 {
+		t.Errorf("got %d entries, want 3", len(entries))
+	}
+
+	if _, err := openInput(srv.URL + "/missing"); err == nil {
+		t.Error("expected error on 404")
 	}
 }
 
